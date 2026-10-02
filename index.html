@@ -160,6 +160,18 @@
                         💾 下載全部班級備份檔 (.json)
                     </button>
                 </div>
+                <!-- 匯入備份 -->
+                <div class="p-3 bg-slate-50 rounded-lg border">
+                    <h4 class="text-sm font-bold mb-2">2. 匯入備份檔案</h4>
+                    <p class="text-[11px] text-slate-400 mb-2">選擇之前下載的 .json 備份檔（會覆蓋目前資料）。</p>
+                    <input id="backupFileInput" type="file" accept=".json,application/json" onchange="importBackupFile(event)" class="w-full text-xs">
+                </div>
+            </div>
+            <div class="flex justify-end pt-4">
+                <button onclick="hideBackupModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">關閉</button>
+            </div>
+        </div>
+    </div>
 
     <!-- 雲端同步設定彈窗 -->
     <div id="cloudModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
