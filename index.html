@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小學功課記錄系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 SheetJS 用於匯出 Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        .status-y { background-color: #dcfce7; color: #166534; } /* 綠色 - 已交 */
+        .status-n { background-color: #fee2e2; color: #991b1b; position: relative; } /* 紅色 - 欠交 */
+        .status-a { background-color: #fef9c3; color: #854d0e; } /* 黃色 - 缺席 */
+        
+        .red-light::after {
+            content: '';
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background-color: #ef4444;
+            border-radius: 50%;
+            margin-left: 5px;
+            box-shadow: 0 0 8px #ef4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        .check-mark::before { content: "✓"; color: #166534; font-weight: bold; }
+        .cross-mark::before { content: "✗"; color: #991b1b; font-weight: bold; }
+
+        table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        th, td { border: 1px solid #e5e7eb; box-sizing: border-box; }
+        
+        /* 雙向固定欄位與表頭樣式 */
+        .sticky-col { position: sticky; left: 0; z-index: 10; }
+        .sticky-header { position: sticky; top: 0; z-index: 20; }
+        .sticky-corner { position: sticky; top: 0; left: 0; z-index: 30; }
+        
+        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: bold; }
+        
+        /* 儲存提示動畫 */
+        #saveIndicator {
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen p-4 md:p-8 font-sans">
+    <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6">
+        
+        <!-- Google Sites 沙盒警告提示 (預設隱藏，偵測到受限時顯示) -->
+        <div id="sandboxWarning" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-sm shadow-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-base">⚠️</span>
+                <span><strong>偵測到 Google Sites / 限制型瀏覽環境：</strong>瀏覽器可能會在頁面關閉時清空快取。強烈建議您下課前點擊右上方<strong>「備份管理」</strong>下載備份檔！</span>
+            </div>
+            <button onclick="document.getElementById('sandboxWarning').remove()" class="text-amber-500 hover:text-amber-800 font-bold px-2">✕</button>
+        </div>
+        
+        <!-- 年級切換 Tabs -->
+        <div class="flex space-x-8 border-b mb-6">
+            <button onclick="switchGrade('P3')" id="tabP3" class="pb-3 px-4 text-slate-500 hover:text-blue-600 transition-all tab-active">三年級</button>
+            <button onclick="switchGrade('P5')" id="tabP5" class="pb-3 px-4 text-slate-500 hover:text-blue-600 transition-all">五年級</button>
+        </div>
+
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b pb-4 border-slate-100">
+            <div>
+                <div class="flex items-center gap-3">
+                    <h1 id="gradeTitle" class="text-2xl font-bold text-slate-800">三年級功課記錄系統</h1>
+                    <button onclick="showCloudModal()" id="syncStatusBadge" class="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-blue-100 transition cursor-pointer" title="點擊設定雲端同步">
+                        <span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                        雲端連接中...
+                    </button>
+                    <span id="saveIndicator" class="opacity-0 text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">已儲存</span>
+                </div>
+                <p class="text-slate-500 text-sm">預設顯示學號：1 - 30 號</p>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end">
+                <button onclick="clearData()" class="text-red-500 hover:text-red-700 text-sm px-2 transition mr-2">清空本班資料</button>
+
+                <!-- 雲端設定按鈕 -->
+                <button onclick="showCloudModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5 text-sm shadow-sm">
+                    <span>☁️</span> 雲端設定
+                </button>
+
+                <!-- 備註與還原管理按鈕 -->
+                <button onclick="showBackupModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    備份與還原
+                </button>
+
+                <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    匯出 Excel
+                </button>
+                <button onclick="showAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md">
+                    <span class="font-bold text-lg">+</span> 新增功課
+                </button>
+            </div>
+        </div>
+
+        <!-- 記錄表格 -->
+        <div class="overflow-auto max-h-[70vh] border rounded-lg shadow-inner bg-white">
+            <table class="w-full text-left text-sm" id="recordTable">
+                <thead class="bg-slate-200 text-slate-700">
+                    <tr id="tableHeader">
+                        <!-- 動態產生的表頭 -->
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="divide-y">
+                    <!-- 學生數據 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 新增功課彈窗 -->
+    <div id="addModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl w-80 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <span class="text-blue-600">📝</span> 新增功課項目
+            </h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">功課名稱</label>
+                    <input id="hwName" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" placeholder="例如：數學工作紙(一)">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="hideAddModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>
+                    <button onclick="addHomework()" class="px-4 py-2 bg-blue-600 text-white rounded shadow-md hover:bg-blue-700">建立</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 備份與還原彈窗 -->
+    <div id="backupModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl w-96 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
+                <span class="text-indigo-600">💾</span> 備份與還原管理
+            </h3>
+            <p class="text-xs text-slate-500 mb-4 leading-relaxed">
+                由於 Google Sites 限制，瀏覽器的自動儲存有時會被清空。建議定期下載備份檔保存於電腦。
+            </p>
+            
+            <div class="space-y-4">
+                <!-- 下載備份 -->
+                <div class="p-3 bg-slate-50 rounded-lg border">
+                    <h4 class="text-sm font-bold mb-2">1. 下載備份檔案</h4>
+                    <p class="text-[11px] text-slate-400 mb-2">將三年級和五年級的所有記錄打包存檔。</p>
+                    <button onclick="exportBackupFile()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded text-sm transition font-medium">
+                        💾 下載全部班級備份檔 (.json)
+                    </button>
+                </div>
+
+PLACEHOLDER
