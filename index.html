@@ -161,4 +161,532 @@
                     </button>
                 </div>
 
-PLACEHOLDER
+    <!-- 雲端同步設定彈窗 -->
+    <div id="cloudModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-bold mb-3 flex items-center gap-2 border-b pb-2 text-slate-800">
+                <span class="text-blue-600">☁️</span> 跨裝置雲端同步設定
+            </h3>
+            <div class="text-xs text-slate-600 space-y-2 mb-4 leading-relaxed">
+                <p class="p-2.5 bg-amber-50 text-amber-900 rounded-lg border border-amber-200">
+                    <strong>提示：</strong>當您把網頁放入 Google Sites 或個人網站時，需要設定專屬的免費 Firebase 金鑰，不同裝置才能同步至同一個資料庫。
+                </p>
+                <p class="font-bold text-slate-700 pt-1">快速 3 步設定專屬雲端：</p>
+                <ol class="list-decimal pl-4 space-y-1 text-slate-600">
+                    <li>前往 <a href="https://console.firebase.google.com" target="_blank" class="text-blue-600 underline font-medium">Firebase Console</a> 建立免費專案。</li>
+                    <li>在專案中啟用 <strong>Firestore Database</strong>（選擇測試模式）。</li>
+                    <li>在專案設定中複製 <code>firebaseConfig</code> 內容並貼於下方：</li>
+                </ol>
+            </div>
+            
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Firebase 金鑰設定 (JSON 格式)：</label>
+                    <textarea id="cloudConfigInput" rows="5" class="w-full text-xs font-mono p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none bg-slate-50" placeholder='{&#10;  "apiKey": "AIzaSy...",&#10;  "authDomain": "your-app.firebaseapp.com",&#10;  "projectId": "your-app-id",&#10;  "appId": "1:123456:web:abcdef"&#10;}'></textarea>
+                </div>
+                
+                <div id="cloudTestResult" class="text-xs p-2 rounded hidden"></div>
+
+                <div class="flex justify-between items-center pt-2 border-t">
+                    <button onclick="clearCloudConfig()" class="text-xs text-red-500 hover:underline">清除雲端設定</button>
+                    <div class="flex gap-2">
+                        <button onclick="hideCloudModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded">取消</button>
+                        <button onclick="saveCloudConfig()" class="px-4 py-1.5 text-xs bg-blue-600 text-white rounded font-bold hover:bg-blue-700 shadow">儲存並連接</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 取得有效 Firebase 配置
+        function getFirebaseConfig() {
+            // 1. 優先使用使用者手動儲存在 LocalStorage 的設定
+            const savedConfig = localStorage.getItem('custom_firebase_config');
+            if (savedConfig) {
+                try {
+                    return JSON.parse(savedConfig);
+                } catch (e) {}
+            }
+            // 2. 其次使用平台注入的 __firebase_config
+            if (typeof __firebase_config !== 'undefined') {
+                try {
+                    return JSON.parse(__firebase_config);
+                } catch (e) {}
+            }
+            return null;
+        }
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'homework-tracker-default';
+
+        let app, auth, db;
+        let currentUser = null;
+        let isCloudAvailable = false;
+
+        let gradeData = {
+            'P3': { name: "三年級", homeworks: [], records: {} },
+            'P5': { name: "五年級", homeworks: [], records: {} }
+        };
+
+        const TOTAL_STUDENTS = 30;
+        let currentGrade = 'P3';
+        let isLocalStorageAvailable = true;
+
+        // 更新雲端同步狀態標籤
+        function updateSyncBadge(text, type = 'normal') {
+            const badge = document.getElementById('syncStatusBadge');
+            if (!badge) return;
+            
+            if (type === 'success') {
+                badge.className = "text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-emerald-100 transition cursor-pointer";
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> ${text}`;
+            } else if (type === 'syncing') {
+                badge.className = "text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-amber-100 transition cursor-pointer";
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> ${text}`;
+            } else if (type === 'error') {
+                badge.className = "text-xs bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-rose-100 transition cursor-pointer";
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-rose-500"></span> ${text}`;
+            } else {
+                badge.className = "text-xs bg-blue-50 text-blue-600 border border-blue-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-blue-100 transition cursor-pointer";
+                badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> ${text}`;
+            }
+        }
+
+        // 初始化 Firebase 與身份認證
+        async function initCloudSync() {
+            const firebaseConfig = getFirebaseConfig();
+
+            if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey === 'demo') {
+                isCloudAvailable = false;
+                updateSyncBadge("離線單機模式 (點擊設定雲端)", "error");
+                return;
+            }
+
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                currentUser = auth.currentUser;
+                if (currentUser) {
+                    isCloudAvailable = true;
+                    bindCloudListener();
+                }
+            } catch (err) {
+                console.warn("無法連接雲端，切換為本地儲存模式", err);
+                isCloudAvailable = false;
+                updateSyncBadge("雲端連線失敗 (點擊檢查)", "error");
+            }
+        }
+
+        window.showCloudModal = function() {
+            const modal = document.getElementById('cloudModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                const saved = localStorage.getItem('custom_firebase_config');
+                if (saved) {
+                    document.getElementById('cloudConfigInput').value = saved;
+                }
+            }
+        };
+
+        window.hideCloudModal = function() {
+            const modal = document.getElementById('cloudModal');
+            if (modal) modal.classList.add('hidden');
+        };
+
+        window.saveCloudConfig = function() {
+            const rawVal = document.getElementById('cloudConfigInput').value.trim();
+            if (!rawVal) {
+                alert("請輸入有效的 Firebase 金鑰設定 JSON！");
+                return;
+            }
+            try {
+                const parsed = JSON.parse(rawVal);
+                if (!parsed.apiKey || !parsed.projectId) {
+                    alert("設定缺少必要的 apiKey 或 projectId 欄位，請檢查！");
+                    return;
+                }
+                localStorage.setItem('custom_firebase_config', JSON.stringify(parsed));
+                alert("雲端設定已儲存，頁面將重新載入以連接資料庫！");
+                window.location.reload();
+            } catch (e) {
+                alert("JSON 格式不正確，請確認複製完整的 Firebase 設定內容！");
+            }
+        };
+
+        window.clearCloudConfig = function() {
+            if (confirm("確定要清除自訂的雲端設定嗎？")) {
+                localStorage.removeItem('custom_firebase_config');
+                window.location.reload();
+            }
+        };
+
+        // 綁定 Firestore 即時監聽器
+        function bindCloudListener() {
+            if (!currentUser || !db) return;
+            
+            // 遵循 RULE 1 嚴格路徑規定: /artifacts/{appId}/public/data/{collectionName}
+            const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', 'main_records');
+            
+            updateSyncBadge("雲端即時連線中", "syncing");
+
+            onSnapshot(dataDocRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    if (data && data.gradeData) {
+                        gradeData = data.gradeData;
+                        renderTable();
+                        updateSyncBadge("雲端即時同步中", "success");
+                    }
+                } else {
+                    // 若雲端尚未有資料，將當前資料寫入雲端
+                    saveToStorage();
+                }
+            }, (error) => {
+                console.error("雲端數據監聽失敗:", error);
+                updateSyncBadge("雲端連線失敗 (使用本地)", "error");
+            });
+        }
+
+        function checkStorage() {
+            try {
+                const testKey = '__storage_test__';
+                localStorage.setItem(testKey, testKey);
+                localStorage.removeItem(testKey);
+                isLocalStorageAvailable = true;
+            } catch (e) {
+                isLocalStorageAvailable = false;
+                document.getElementById('sandboxWarning').classList.remove('hidden');
+            }
+        }
+
+        function loadStorage() {
+            if (!isLocalStorageAvailable) return;
+            try {
+                const saved = localStorage.getItem('school_hw_records_v2') || localStorage.getItem('school_hw_records_v1');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    Object.keys(gradeData).forEach(key => {
+                        if (parsed[key]) {
+                            gradeData[key].homeworks = parsed[key].homeworks || [];
+                            gradeData[key].records = parsed[key].records || {};
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn("LocalStorage 讀取異常", e);
+            }
+        }
+
+        // 儲存至 LocalStorage 與 Firebase 雲端
+        async function saveToStorage() {
+            if (isLocalStorageAvailable) {
+                try {
+                    localStorage.setItem('school_hw_records_v2', JSON.stringify(gradeData));
+                } catch (e) {}
+            }
+            showSaveFeedback("已儲存");
+
+            if (isCloudAvailable && db && currentUser) {
+                try {
+                    updateSyncBadge("上傳雲端中...", "syncing");
+                    const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', 'main_records');
+                    await setDoc(dataDocRef, {
+                        gradeData: gradeData,
+                        updatedAt: new Date().toISOString()
+                    });
+                    updateSyncBadge("雲端即時同步中", "success");
+                } catch (e) {
+                    console.error("雲端儲存失敗:", e);
+                    updateSyncBadge("同步失敗", "error");
+                }
+            }
+        }
+
+        function showSaveFeedback(text = "已儲存") {
+            const el = document.getElementById('saveIndicator');
+            if (el) {
+                el.innerText = text;
+                el.style.opacity = '1';
+                setTimeout(() => { el.style.opacity = '0'; }, 1000);
+            }
+        }
+
+        async function init() {
+            checkStorage();
+            loadStorage();
+            renderTable();
+            await initCloudSync();
+        }
+
+        /* 暴露供 HTML 行內事件使用的函式 */
+        window.switchGrade = function(gradeKey) {
+            currentGrade = gradeKey;
+            document.getElementById('tabP3').className = gradeKey === 'P3' ? 'pb-3 px-4 tab-active' : 'pb-3 px-4 text-slate-500 hover:text-blue-600';
+            document.getElementById('tabP5').className = gradeKey === 'P5' ? 'pb-3 px-4 tab-active' : 'pb-3 px-4 text-slate-500 hover:text-blue-600';
+            document.getElementById('gradeTitle').innerText = `${gradeData[gradeKey].name}功課記錄系統`;
+            renderTable();
+        };
+
+        window.showBackupModal = function() { document.getElementById('backupModal').classList.remove('hidden'); };
+        window.hideBackupModal = function() {
+            document.getElementById('backupModal').classList.add('hidden');
+            document.getElementById('backupFileInput').value = '';
+        };
+
+        window.exportBackupFile = function() {
+            try {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gradeData, null, 2));
+                const downloadAnchor = document.createElement('a');
+                const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
+                downloadAnchor.setAttribute("href", dataStr);
+                downloadAnchor.setAttribute("download", `三年級與五年級功課系統備份_${dateStr}.json`);
+                document.body.appendChild(downloadAnchor);
+                downloadAnchor.click();
+                downloadAnchor.remove();
+            } catch (error) {
+                alert("匯出備份檔案時發生錯誤！");
+            }
+        };
+
+        window.importBackupFile = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if ((parsed.P3 && parsed.P5) || (parsed.P2 && parsed.P6)) {
+                        if (confirm("匯入備份將會覆蓋目前的全部資料，確定要匯入嗎？")) {
+                            if (parsed.P3 && parsed.P5) {
+                                gradeData = parsed;
+                            } else {
+                                gradeData['P3'].homeworks = parsed.P2.homeworks || [];
+                                gradeData['P3'].records = parsed.P2.records || {};
+                                gradeData['P5'].homeworks = parsed.P6.homeworks || [];
+                                gradeData['P5'].records = parsed.P6.records || {};
+                            }
+                            saveToStorage();
+                            renderTable();
+                            hideBackupModal();
+                            alert("🎉 備份資料已成功導入與還原！");
+                        }
+                    } else {
+                        alert("檔案格式不正確，請確認上傳的是本系統專用的備份檔 (.json)！");
+                    }
+                } catch (err) {
+                    alert("解析備份檔案時出錯，檔案可能已損壞。");
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        window.showAddModal = function() {
+            document.getElementById('addModal').classList.remove('hidden');
+            document.getElementById('hwName').focus();
+        };
+
+        window.hideAddModal = function() {
+            document.getElementById('addModal').classList.add('hidden');
+            document.getElementById('hwName').value = '';
+        };
+
+        window.addHomework = function() {
+            const name = document.getElementById('hwName').value.trim();
+            if (!name) return;
+            const now = new Date();
+            const dateStr = `${now.getMonth() + 1}/${now.getDate()}`;
+            gradeData[currentGrade].homeworks.push({ name: name, date: dateStr, showNote: false });
+            hideAddModal();
+            saveToStorage();
+            renderTable();
+        };
+
+        window.toggleNote = function(hwIdx) {
+            gradeData[currentGrade].homeworks[hwIdx].showNote = !gradeData[currentGrade].homeworks[hwIdx].showNote;
+            saveToStorage();
+            renderTable();
+        };
+
+        window.cycleStatus = function(sIdx, hIdx) {
+            const key = `${sIdx}_${hIdx}`;
+            const data = gradeData[currentGrade];
+            if (!data.records[key]) {
+                data.records[key] = { status: 'Y', isLate: false, mark: 'none', note: '' };
+            } else {
+                const current = data.records[key].status;
+                if (current === 'Y') data.records[key].status = 'N';
+                else if (current === 'N') data.records[key].status = 'A';
+                else if (current === 'A') data.records[key].status = '-';
+                else data.records[key].status = 'Y';
+            }
+            saveToStorage();
+            renderTable();
+        };
+
+        window.toggleLate = function(e, sIdx, hIdx) {
+            e.stopPropagation();
+            const key = `${sIdx}_${hIdx}`;
+            const rec = gradeData[currentGrade].records[key];
+            if (rec && (rec.status === 'N' || rec.status === 'A')) {
+                rec.isLate = !rec.isLate;
+                saveToStorage();
+                renderTable();
+            }
+        };
+
+        window.cycleMark = function(sIdx, hIdx) {
+            const key = `${sIdx}_${hIdx}`;
+            const data = gradeData[currentGrade];
+            if (!data.records[key]) data.records[key] = { status: '-', isLate: false, mark: 'none', note: '' };
+            const current = data.records[key].mark;
+            if (current === 'none') data.records[key].mark = 'check';
+            else if (current === 'check') data.records[key].mark = 'cross';
+            else data.records[key].mark = 'none';
+            saveToStorage();
+            renderTable();
+        };
+
+        window.updateNoteText = function(sIdx, hIdx, val) {
+            const key = `${sIdx}_${hIdx}`;
+            const data = gradeData[currentGrade];
+            if (!data.records[key]) data.records[key] = { status: '-', isLate: false, mark: 'none', note: '' };
+            data.records[key].note = val;
+            saveToStorage();
+        };
+
+        window.clearData = function() {
+            if (confirm(`確定要清空「${gradeData[currentGrade].name}」的所有功課記錄嗎？此動作無法復原。`)) {
+                gradeData[currentGrade].homeworks = [];
+                gradeData[currentGrade].records = {};
+                saveToStorage();
+                renderTable();
+            }
+        };
+
+        window.exportToExcel = function() {
+            const data = gradeData[currentGrade];
+            if (data.homeworks.length === 0) {
+                alert("目前沒有功課資料可以匯出。");
+                return;
+            }
+            const excelData = [];
+            const headerRow = ["學號"];
+            data.homeworks.forEach(hw => {
+                headerRow.push(`${hw.name} (${hw.date})`);
+                if (hw.showNote) headerRow.push(`${hw.name} - 備註`);
+            });
+            excelData.push(headerRow);
+            for (let sIdx = 0; sIdx < TOTAL_STUDENTS; sIdx++) {
+                const row = [sIdx + 1];
+                data.homeworks.forEach((hw, hIdx) => {
+                    const key = `${sIdx}_${hIdx}`;
+                    const rec = data.records[key] || { status: '-', isLate: false, mark: 'none', note: '' };
+                    let statusText = rec.status;
+                    if ((rec.status === 'N' || rec.status === 'A') && rec.isLate) statusText += " (已補交)";
+                    if (rec.mark === 'check') statusText += " [✓]";
+                    if (rec.mark === 'cross') statusText += " [✗]";
+                    row.push(statusText);
+                    if (hw.showNote) row.push(rec.note || "");
+                });
+                excelData.push(row);
+            }
+            const ws = XLSX.utils.aoa_to_sheet(excelData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "功課記錄");
+            XLSX.writeFile(wb, `${data.name}_功課記錄_${new Date().toLocaleDateString().replace(/\//g, '-')}.xlsx`);
+        };
+
+        function renderTable() {
+            const data = gradeData[currentGrade];
+            const header = document.getElementById('tableHeader');
+            const body = document.getElementById('tableBody');
+
+            let headerHtml = `
+                <th class="p-2 text-center bg-slate-200 font-bold sticky-corner w-20 min-w-[80px] max-w-[80px] h-12 border-r-2 border-slate-300 shadow-sm">學號</th>
+            `;
+            
+            data.homeworks.forEach((hw, i) => {
+                headerHtml += `
+                    <th class="p-2 w-36 min-w-[144px] max-w-[144px] h-12 bg-slate-100 border-r sticky-header shadow-sm">
+                        <div class="flex flex-col h-full justify-between">
+                            <span class="text-[10px] text-slate-400 font-normal leading-none">${hw.date}</span>
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="font-bold text-blue-900 truncate text-xs" title="${hw.name}">${hw.name}</span>
+                                <button onclick="toggleNote(${i})" class="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-blue-600 text-white rounded-full text-[10px] hover:bg-blue-700 shadow-sm transition">
+                                    ${hw.showNote ? '−' : '+'}
+                                </button>
+                            </div>
+                        </div>
+                    </th>
+                `;
+                if (hw.showNote) {
+                    headerHtml += `<th class="p-2 w-44 min-w-[176px] max-w-[176px] h-12 bg-amber-100 italic font-normal text-amber-900 text-xs border-r sticky-header shadow-sm">備註</th>`;
+                }
+            });
+            header.innerHTML = headerHtml;
+
+            let bodyHtml = '';
+            for (let sIdx = 0; sIdx < TOTAL_STUDENTS; sIdx++) {
+                bodyHtml += `
+                    <tr class="hover:bg-slate-50 transition-colors h-12">
+                        <td class="p-2 text-center sticky-col bg-white hover:bg-slate-50 font-mono font-bold text-slate-700 border-r-2 border-slate-300 w-20 min-w-[80px] max-w-[80px] h-12 shadow-sm">${sIdx + 1}</td>
+                `;
+                data.homeworks.forEach((hw, hIdx) => {
+                    const key = `${sIdx}_${hIdx}`;
+                    const rec = data.records[key] || { status: '-', isLate: false, mark: 'none', note: '' };
+                    let statusClass = '';
+                    if (rec.status === 'Y') statusClass = 'status-y';
+                    if (rec.status === 'N') statusClass = 'status-n';
+                    if (rec.status === 'A') statusClass = 'status-a';
+                    const lightClass = (rec.status === 'N' && !rec.isLate) ? 'red-light' : '';
+                    const markClass = rec.mark === 'check' ? 'check-mark' : (rec.mark === 'cross' ? 'cross-mark' : '');
+                    bodyHtml += `
+                        <td class="p-0 border-r relative w-36 min-w-[144px] max-w-[144px] h-12">
+                            <div class="flex h-full w-full items-stretch">
+                                <div onclick="cycleStatus(${sIdx}, ${hIdx})" class="flex-1 flex items-center justify-center cursor-pointer transition-all ${statusClass} font-black text-lg select-none">
+                                    <span class="${lightClass}">${rec.status}</span>
+                                </div>
+                                ${(rec.status === 'N' || rec.status === 'A') ? `
+                                    <button onclick="toggleLate(event, ${sIdx}, ${hIdx})" class="absolute top-1 right-8 text-[9px] font-bold ${rec.isLate ? 'bg-green-600 text-white' : 'bg-white/90 text-red-600'} px-1 py-0.5 rounded shadow-sm border z-10">
+                                        ${rec.isLate ? '已補' : '待補'}
+                                    </button>
+                                ` : ''}
+                                <div onclick="cycleMark(${sIdx}, ${hIdx})" class="w-7 flex items-center justify-center border-l cursor-pointer hover:bg-slate-100 select-none ${markClass} text-base">
+                                </div>
+                            </div>
+                        </td>
+                    `;
+                    if (hw.showNote) {
+                        bodyHtml += `
+                            <td class="p-1 bg-amber-50/50 border-r w-44 min-w-[176px] max-w-[176px] h-12">
+                                <textarea 
+                                    oninput="updateNoteText(${sIdx}, ${hIdx}, this.value)"
+                                    placeholder="..." 
+                                    class="w-full h-full bg-transparent text-xs p-1 outline-none resize-none rounded border border-transparent focus:border-amber-300 focus:bg-white"
+                                >${rec.note || ''}</textarea>
+                            </td>
+                        `;
+                    }
+                });
+                bodyHtml += `</tr>`;
+            }
+            body.innerHTML = bodyHtml;
+        }
+
+        init();
+    </script>
+</body>
+</html>
