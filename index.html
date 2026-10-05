@@ -11,7 +11,7 @@
         .status-y { background-color: #dcfce7; color: #166534; } /* 綠色 - 已交 */
         .status-n { background-color: #fee2e2; color: #991b1b; position: relative; } /* 紅色 - 欠交 */
         .status-a { background-color: #fef9c3; color: #854d0e; } /* 黃色 - 缺席 */
-        
+
         .red-light::after {
             content: '';
             display: inline-block;
@@ -35,14 +35,14 @@
 
         table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
         th, td { border: 1px solid #e5e7eb; box-sizing: border-box; }
-        
+
         /* 雙向固定欄位與表頭樣式 */
         .sticky-col { position: sticky; left: 0; z-index: 10; }
         .sticky-header { position: sticky; top: 0; z-index: 20; }
         .sticky-corner { position: sticky; top: 0; left: 0; z-index: 30; }
-        
+
         .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: bold; }
-        
+
         /* 儲存提示動畫 */
         #saveIndicator {
             transition: opacity 0.5s ease;
@@ -51,7 +51,7 @@
 </head>
 <body class="bg-slate-50 min-h-screen p-4 md:p-8 font-sans">
     <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6">
-        
+
         <!-- Google Sites 沙盒警告提示 (預設隱藏，偵測到受限時顯示) -->
         <div id="sandboxWarning" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-sm shadow-sm">
             <div class="flex items-center gap-2">
@@ -60,11 +60,15 @@
             </div>
             <button onclick="document.getElementById('sandboxWarning').remove()" class="text-amber-500 hover:text-amber-800 font-bold px-2">✕</button>
         </div>
-        
-        <!-- 年級切換 Tabs -->
-        <div class="flex space-x-8 border-b mb-6">
-            <button onclick="switchGrade('P3')" id="tabP3" class="pb-3 px-4 text-slate-500 hover:text-blue-600 transition-all tab-active">三年級</button>
-            <button onclick="switchGrade('P5')" id="tabP5" class="pb-3 px-4 text-slate-500 hover:text-blue-600 transition-all">五年級</button>
+
+        <!-- 動態年級/班別切換 Tabs -->
+        <div class="flex items-center justify-between border-b mb-6 overflow-x-auto pb-1 gap-2">
+            <div id="gradeTabs" class="flex space-x-2 md:space-x-4">
+                <!-- 動態由 JavaScript 產生年級頁籤 -->
+            </div>
+            <button onclick="showAddGradeModal()" class="flex-shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition border border-slate-300 flex items-center gap-1">
+                <span>+</span> 新增級別
+            </button>
         </div>
 
         <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b pb-4 border-slate-100">
@@ -77,32 +81,41 @@
                     </button>
                     <span id="saveIndicator" class="opacity-0 text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">已儲存</span>
                 </div>
-                <p class="text-slate-500 text-sm">預設顯示學號：1 - 30 號</p>
+                <p id="studentCountSummary" class="text-slate-500 text-sm">目前學生人數：30 人</p>
             </div>
             <div class="flex flex-wrap gap-2 justify-end">
-                <button onclick="clearData()" class="text-red-500 hover:text-red-700 text-sm px-2 transition mr-2">清空本班資料</button>
+                <!-- 新增學生與匯入 Excel 按鈕 -->
+                <button onclick="addStudent()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-xs px-3 py-2 rounded-lg transition flex items-center gap-1 font-medium">
+                    <span>+</span> 新增學生
+                </button>
+                <button onclick="document.getElementById('excelStudentInput').click()" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5 text-xs shadow-sm font-medium">
+                    <span>📥</span> 匯入學生 Excel
+                </button>
+                <input type="file" id="excelStudentInput" accept=".xlsx, .xls, .csv" onchange="importStudentsFromExcel(event)" class="hidden">
+
+                <button onclick="clearData()" class="text-red-500 hover:text-red-700 text-xs px-2 transition mr-1">清空本班資料</button>
 
                 <!-- 雲端設定按鈕 -->
-                <button onclick="showCloudModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5 text-sm shadow-sm">
+                <button onclick="showCloudModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-lg transition flex items-center gap-1.5 text-xs shadow-sm">
                     <span>☁️</span> 雲端設定
                 </button>
 
                 <!-- 備註與還原管理按鈕 -->
-                <button onclick="showBackupModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <button onclick="showBackupModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 text-xs shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                     </svg>
-                    備份與還原
+                    備份還原
                 </button>
 
-                <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 text-xs shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     匯出 Excel
                 </button>
-                <button onclick="showAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md">
-                    <span class="font-bold text-lg">+</span> 新增功課
+                <button onclick="showAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg transition flex items-center gap-1 text-xs shadow-md font-bold">
+                    <span class="text-sm">+</span> 新增功課
                 </button>
             </div>
         </div>
@@ -141,6 +154,53 @@
         </div>
     </div>
 
+    <!-- 編輯功課彈窗 -->
+    <div id="editHwModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl w-80 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <span class="text-blue-600">✏️️</span> 修改功課名稱
+            </h3>
+            <div class="space-y-4">
+                <input type="hidden" id="editHwIndex">
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">功課名稱</label>
+                    <input id="editHwName" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">日期</label>
+                    <input id="editHwDate" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="hideEditHwModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>
+                    <button onclick="saveEditHomework()" class="px-4 py-2 bg-blue-600 text-white rounded shadow-md hover:bg-blue-700">儲存更新</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增級別彈窗 -->
+    <div id="addGradeModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl w-80 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <span class="text-blue-600">🏫</span> 新增級別 / 班別
+            </h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">級別名稱</label>
+                    <input id="newGradeName" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none" placeholder="例如：四年級、4A班">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1 text-slate-700">預設學生人數</label>
+                    <input id="newGradeStudentCount" type="number" min="1" max="60" value="30" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button onclick="hideAddGradeModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>
+                    <button onclick="confirmAddGrade()" class="px-4 py-2 bg-blue-600 text-white rounded shadow-md hover:bg-blue-700">建立級別</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 備份與還原彈窗 -->
     <div id="backupModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
         <div class="bg-white p-6 rounded-xl w-96 shadow-2xl">
@@ -150,7 +210,7 @@
             <p class="text-xs text-slate-500 mb-4 leading-relaxed">
                 由於 Google Sites 限制，瀏覽器的自動儲存有時會被清空。建議定期下載備份檔保存於電腦。
             </p>
-            
+
             <div class="space-y-4">
                 <!-- 下載備份 -->
                 <div class="p-3 bg-slate-50 rounded-lg border">
@@ -190,13 +250,18 @@
                     <li>在專案設定中複製 <code>firebaseConfig</code> 內容並貼於下方：</li>
                 </ol>
             </div>
-            
+
             <div class="space-y-3">
                 <div>
                     <label class="block text-xs font-bold text-slate-700 mb-1">Firebase 金鑰設定 (JSON 格式)：</label>
                     <textarea id="cloudConfigInput" rows="5" class="w-full text-xs font-mono p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none bg-slate-50" placeholder='{&#10;  "apiKey": "AIzaSy...",&#10;  "authDomain": "your-app.firebaseapp.com",&#10;  "projectId": "your-app-id",&#10;  "appId": "1:123456:web:abcdef"&#10;}'></textarea>
                 </div>
-                
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">老師代號（選填）：</label>
+                    <input id="teacherCodeInput" type="text" maxlength="40" autocomplete="off" class="w-full text-xs font-mono p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none bg-slate-50" placeholder="留空 = 使用原本的記錄">
+                    <p class="text-[11px] text-slate-400 mt-1">其他老師共用同一個 Firebase 時，請各自填一個代號（只限英文小寫、數字、- 或 _），資料會分開存放，互不影響。</p>
+                </div>
+
                 <div id="cloudTestResult" class="text-xs p-2 rounded hidden"></div>
 
                 <div class="flex justify-between items-center pt-2 border-t">
@@ -217,42 +282,66 @@
 
         // 取得有效 Firebase 配置
         function getFirebaseConfig() {
-            // 1. 優先使用使用者手動儲存在 LocalStorage 的設定
             const savedConfig = localStorage.getItem('custom_firebase_config');
             if (savedConfig) {
-                try {
-                    return JSON.parse(savedConfig);
-                } catch (e) {}
+                try { return JSON.parse(savedConfig); } catch (e) {}
             }
-            // 2. 其次使用平台注入的 __firebase_config
             if (typeof __firebase_config !== 'undefined') {
-                try {
-                    return JSON.parse(__firebase_config);
-                } catch (e) {}
+                try { return JSON.parse(__firebase_config); } catch (e) {}
             }
             return null;
         }
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'homework-tracker-default';
 
+        // 老師代號：留空 = 沿用原本的雲端文件 (main_records) 與本機儲存位置 (school_hw_records_v2)
+        function sanitizeTeacherCode(raw) {
+            return String(raw || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+        }
+        const teacherCode = (() => {
+            try { return sanitizeTeacherCode(localStorage.getItem('teacher_code')); } catch (e) { return ''; }
+        })();
+        const cloudDocId = teacherCode ? `main_records_${teacherCode}` : 'main_records';
+        const localRecordsKey = teacherCode ? `school_hw_records_v2_${teacherCode}` : 'school_hw_records_v2';
+
         let app, auth, db;
         let currentUser = null;
         let isCloudAvailable = false;
+        // 未收到伺服器的第一份雲端資料前，不會上傳任何資料，避免用空白預設值覆蓋雲端記錄
+        let cloudSynced = false;
+
+        // 建立預設 30 名學生資料結構 (含可選學生姓名)
+        function createDefaultStudents(count = 30) {
+            return Array.from({ length: count }, (_, i) => ({ id: i + 1, name: '' }));
+        }
 
         let gradeData = {
-            'P3': { name: "三年級", homeworks: [], records: {} },
-            'P5': { name: "五年級", homeworks: [], records: {} }
+            'P3': { id: 'P3', name: "三年級", homeworks: [], records: {}, students: createDefaultStudents(30) },
+            'P5': { id: 'P5', name: "五年級", homeworks: [], records: {}, students: createDefaultStudents(30) }
         };
 
-        const TOTAL_STUDENTS = 30;
         let currentGrade = 'P3';
         let isLocalStorageAvailable = true;
+
+        // 確保 gradeData 資料相容最新結構
+        function sanitizeGradeData() {
+            Object.keys(gradeData).forEach(gKey => {
+                if (!gradeData[gKey].students || !Array.isArray(gradeData[gKey].students)) {
+                    gradeData[gKey].students = createDefaultStudents(30);
+                }
+                if (!gradeData[gKey].id) gradeData[gKey].id = gKey;
+            });
+            if (!gradeData[currentGrade]) {
+                currentGrade = Object.keys(gradeData)[0] || 'P3';
+            }
+        }
 
         // 更新雲端同步狀態標籤
         function updateSyncBadge(text, type = 'normal') {
             const badge = document.getElementById('syncStatusBadge');
             if (!badge) return;
-            
+            if (teacherCode) text = `${text} · 代號：${teacherCode}`;
+
             if (type === 'success') {
                 badge.className = "text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1 font-medium hover:bg-emerald-100 transition cursor-pointer";
                 badge.innerHTML = `<span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span> ${text}`;
@@ -309,6 +398,7 @@
                 if (saved) {
                     document.getElementById('cloudConfigInput').value = saved;
                 }
+                document.getElementById('teacherCodeInput').value = teacherCode;
             }
         };
 
@@ -329,6 +419,17 @@
                     alert("設定缺少必要的 apiKey 或 projectId 欄位，請檢查！");
                     return;
                 }
+                const rawCode = document.getElementById('teacherCodeInput').value.trim();
+                const code = sanitizeTeacherCode(rawCode);
+                if (rawCode && !code) {
+                    alert("老師代號只可以用英文字母、數字、- 或 _，請修改！");
+                    return;
+                }
+                if (code !== rawCode && !confirm(`老師代號會儲存為「${code}」，確定嗎？`)) {
+                    return;
+                }
+                if (code) localStorage.setItem('teacher_code', code);
+                else localStorage.removeItem('teacher_code');
                 localStorage.setItem('custom_firebase_config', JSON.stringify(parsed));
                 alert("雲端設定已儲存，頁面將重新載入以連接資料庫！");
                 window.location.reload();
@@ -347,22 +448,29 @@
         // 綁定 Firestore 即時監聽器
         function bindCloudListener() {
             if (!currentUser || !db) return;
-            
-            // 遵循 RULE 1 嚴格路徑規定: /artifacts/{appId}/public/data/{collectionName}
-            const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', 'main_records');
-            
+
+            const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', cloudDocId);
             updateSyncBadge("雲端即時連線中", "syncing");
 
             onSnapshot(dataDocRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const data = snapshot.data();
-                    if (data && data.gradeData) {
+                    if (data && data.gradeData && typeof data.gradeData === 'object') {
                         gradeData = data.gradeData;
+                        sanitizeGradeData();
+                        cloudSynced = true;
+                        // 同時更新本機副本（只寫入本機，不會回傳雲端）
+                        if (isLocalStorageAvailable) {
+                            try { localStorage.setItem(localRecordsKey, JSON.stringify(gradeData)); } catch (e) {}
+                        }
+                        renderGradeTabs();
                         renderTable();
                         updateSyncBadge("雲端即時同步中", "success");
                     }
-                } else {
-                    // 若雲端尚未有資料，將當前資料寫入雲端
+                } else if (!snapshot.metadata.fromCache) {
+                    // 伺服器確認雲端尚未有此文件：才把本機資料寫入雲端
+                    // (離線時的快取結果不算數，以免用空白資料覆蓋雲端)
+                    cloudSynced = true;
                     saveToStorage();
                 }
             }, (error) => {
@@ -386,34 +494,34 @@
         function loadStorage() {
             if (!isLocalStorageAvailable) return;
             try {
-                const saved = localStorage.getItem('school_hw_records_v2') || localStorage.getItem('school_hw_records_v1');
+                const saved = teacherCode
+                    ? localStorage.getItem(localRecordsKey)
+                    : (localStorage.getItem('school_hw_records_v2') || localStorage.getItem('school_hw_records_v1'));
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    Object.keys(gradeData).forEach(key => {
-                        if (parsed[key]) {
-                            gradeData[key].homeworks = parsed[key].homeworks || [];
-                            gradeData[key].records = parsed[key].records || {};
-                        }
-                    });
+                    if (parsed && Object.keys(parsed).length > 0) {
+                        gradeData = parsed;
+                    }
                 }
             } catch (e) {
                 console.warn("LocalStorage 讀取異常", e);
             }
+            sanitizeGradeData();
         }
 
         // 儲存至 LocalStorage 與 Firebase 雲端
         async function saveToStorage() {
             if (isLocalStorageAvailable) {
                 try {
-                    localStorage.setItem('school_hw_records_v2', JSON.stringify(gradeData));
+                    localStorage.setItem(localRecordsKey, JSON.stringify(gradeData));
                 } catch (e) {}
             }
-            showSaveFeedback("已儲存");
+            showSaveFeedback((isCloudAvailable && !cloudSynced) ? "已存本機（等待雲端）" : "已儲存");
 
-            if (isCloudAvailable && db && currentUser) {
+            if (isCloudAvailable && db && currentUser && cloudSynced) {
                 try {
                     updateSyncBadge("上傳雲端中...", "syncing");
-                    const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', 'main_records');
+                    const dataDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'homework_tracker', cloudDocId);
                     await setDoc(dataDocRef, {
                         gradeData: gradeData,
                         updatedAt: new Date().toISOString()
@@ -438,17 +546,193 @@
         async function init() {
             checkStorage();
             loadStorage();
+            renderGradeTabs();
             renderTable();
             await initCloudSync();
+        }
+
+        /* 渲染動態級別 Tabs */
+        function renderGradeTabs() {
+            const container = document.getElementById('gradeTabs');
+            if (!container) return;
+
+            const gradeKeys = Object.keys(gradeData);
+            let html = '';
+
+            gradeKeys.forEach(gKey => {
+                const isActive = gKey === currentGrade;
+                const activeClass = isActive ? 'tab-active font-bold border-b-2 border-blue-600 text-blue-600' : 'text-slate-500 hover:text-blue-600';
+
+                html += `
+                    <div class="flex items-center gap-1 pb-2 px-3 transition-all cursor-pointer ${activeClass}">
+                        <span onclick="switchGrade('${gKey}')" class="text-sm md:text-base whitespace-nowrap">${gradeData[gKey].name}</span>
+                        ${gradeKeys.length > 1 ? `
+                            <button onclick="deleteGrade(event, '${gKey}')" title="刪除此級別" class="text-slate-400 hover:text-red-600 hover:bg-red-50 p-0.5 rounded-full text-xs transition">
+                                ✕
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
         }
 
         /* 暴露供 HTML 行內事件使用的函式 */
         window.switchGrade = function(gradeKey) {
             currentGrade = gradeKey;
-            document.getElementById('tabP3').className = gradeKey === 'P3' ? 'pb-3 px-4 tab-active' : 'pb-3 px-4 text-slate-500 hover:text-blue-600';
-            document.getElementById('tabP5').className = gradeKey === 'P5' ? 'pb-3 px-4 tab-active' : 'pb-3 px-4 text-slate-500 hover:text-blue-600';
-            document.getElementById('gradeTitle').innerText = `${gradeData[gradeKey].name}功課記錄系統`;
+            renderGradeTabs();
             renderTable();
+        };
+
+        // 新增級別 Modal
+        window.showAddGradeModal = function() { document.getElementById('addGradeModal').classList.remove('hidden'); };
+        window.hideAddGradeModal = function() {
+            document.getElementById('addGradeModal').classList.add('hidden');
+            document.getElementById('newGradeName').value = '';
+        };
+
+        window.confirmAddGrade = function() {
+            const name = document.getElementById('newGradeName').value.trim();
+            const count = parseInt(document.getElementById('newGradeStudentCount').value) || 30;
+            if (!name) {
+                alert("請輸入級別名稱！");
+                return;
+            }
+            const newKey = 'G_' + Date.now();
+            gradeData[newKey] = {
+                id: newKey,
+                name: name,
+                homeworks: [],
+                records: {},
+                students: createDefaultStudents(count)
+            };
+            currentGrade = newKey;
+            hideAddGradeModal();
+            saveToStorage();
+            renderGradeTabs();
+            renderTable();
+        };
+
+        // 刪除級別
+        window.deleteGrade = function(e, gradeKey) {
+            e.stopPropagation();
+            const gName = gradeData[gradeKey]?.name || '此級別';
+            if (confirm(`確定要刪除「${gName}」嗎？該級別的所有功課記錄與學生資料將會被清除！`)) {
+                delete gradeData[gradeKey];
+                const remainingKeys = Object.keys(gradeData);
+                if (remainingKeys.length > 0) {
+                    currentGrade = remainingKeys[0];
+                } else {
+                    currentGrade = 'P3';
+                    gradeData['P3'] = { id: 'P3', name: "三年級", homeworks: [], records: {}, students: createDefaultStudents(30) };
+                }
+                saveToStorage();
+                renderGradeTabs();
+                renderTable();
+            }
+        };
+
+        // 刪除學生或功課後，重新對齊記錄索引 (records 以 "學生索引_功課索引" 為 key)
+        function reindexRecords(records, removeIdx, part) {
+            const out = {};
+            Object.keys(records || {}).forEach(k => {
+                const [sStr, hStr] = k.split('_');
+                const s = parseInt(sStr), h = parseInt(hStr);
+                if (isNaN(s) || isNaN(h)) { out[k] = records[k]; return; }
+                const idx = part === 'student' ? s : h;
+                if (idx === removeIdx) return;
+                const ns = (part === 'student' && s > removeIdx) ? s - 1 : s;
+                const nh = (part === 'homework' && h > removeIdx) ? h - 1 : h;
+                out[`${ns}_${nh}`] = records[k];
+            });
+            return out;
+        }
+
+        // 新增 / 刪除學生
+        window.addStudent = function() {
+            const students = gradeData[currentGrade].students;
+            const newNum = students.length + 1;
+            students.push({ id: newNum, name: '' });
+            saveToStorage();
+            renderTable();
+        };
+
+        window.deleteStudent = function(sIdx) {
+            const students = gradeData[currentGrade].students;
+            const target = students[sIdx];
+            const displayName = target.name ? `學號 ${target.id} (${target.name})` : `學號 ${target.id}`;
+            if (confirm(`確定要刪除「${displayName}」嗎？此考生的功課紀錄也會隨之移除。`)) {
+                students.splice(sIdx, 1);
+                gradeData[currentGrade].records = reindexRecords(gradeData[currentGrade].records, sIdx, 'student');
+                saveToStorage();
+                renderTable();
+            }
+        };
+
+        // 從 Excel 匯入學生姓名
+        window.importStudentsFromExcel = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    if (json.length === 0) {
+                        alert("匯入的 Excel 檔案為空！");
+                        return;
+                    }
+
+                    // 尋找姓名欄位或直接讀取每一列
+                    let nameColIdx = 0;
+                    let startRow = 0;
+
+                    // 檢查第一列是否為標頭 (例如: 學號, 姓名, 學生姓名)
+                    if (json[0] && Array.isArray(json[0])) {
+                        const headerRow = json[0].map(c => String(c).trim());
+                        const foundIdx = headerRow.findIndex(h => h.includes("姓名") || h.includes("學生") || h.includes("Name"));
+                        if (foundIdx !== -1) {
+                            nameColIdx = foundIdx;
+                            startRow = 1;
+                        }
+                    }
+
+                    const extractedNames = [];
+                    for (let r = startRow; r < json.length; r++) {
+                        const row = json[r];
+                        if (row && row[nameColIdx] !== undefined && String(row[nameColIdx]).trim() !== '') {
+                            extractedNames.push(String(row[nameColIdx]).trim());
+                        }
+                    }
+
+                    if (extractedNames.length === 0) {
+                        alert("未能從 Excel 中讀取到有效的學生姓名！");
+                        return;
+                    }
+
+                    if (confirm(`成功讀取到 ${extractedNames.length} 位學生姓名。要更新至「${gradeData[currentGrade].name}」嗎？`)) {
+                        // 重置/擴充學生名單
+                        const newStudents = [];
+                        extractedNames.forEach((name, i) => {
+                            newStudents.push({ id: i + 1, name: name });
+                        });
+                        gradeData[currentGrade].students = newStudents;
+                        saveToStorage();
+                        renderTable();
+                        alert("🎉 學生名單已成功匯入！");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert("匯入 Excel 檔案失敗，請確認檔案格式是否正確！");
+                }
+                event.target.value = '';
+            };
+            reader.readAsArrayBuffer(file);
         };
 
         window.showBackupModal = function() { document.getElementById('backupModal').classList.remove('hidden'); };
@@ -463,7 +747,7 @@
                 const downloadAnchor = document.createElement('a');
                 const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
                 downloadAnchor.setAttribute("href", dataStr);
-                downloadAnchor.setAttribute("download", `三年級與五年級功課系統備份_${dateStr}.json`);
+                downloadAnchor.setAttribute("download", `功課記錄系統備份_${dateStr}.json`);
                 document.body.appendChild(downloadAnchor);
                 downloadAnchor.click();
                 downloadAnchor.remove();
@@ -480,17 +764,21 @@
             reader.onload = function(e) {
                 try {
                     const parsed = JSON.parse(e.target.result);
-                    if ((parsed.P3 && parsed.P5) || (parsed.P2 && parsed.P6)) {
+                    const keys = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? Object.keys(parsed) : [];
+                    const looksValid = keys.length > 0 && keys.every(k => {
+                        const g = parsed[k];
+                        return g && typeof g === 'object' && Array.isArray(g.homeworks) && (!g.records || typeof g.records === 'object');
+                    });
+                    if (looksValid) {
+                        keys.forEach(k => {
+                            if (!parsed[k].records) parsed[k].records = {};
+                            if (!parsed[k].name) parsed[k].name = k;
+                        });
                         if (confirm("匯入備份將會覆蓋目前的全部資料，確定要匯入嗎？")) {
-                            if (parsed.P3 && parsed.P5) {
-                                gradeData = parsed;
-                            } else {
-                                gradeData['P3'].homeworks = parsed.P2.homeworks || [];
-                                gradeData['P3'].records = parsed.P2.records || {};
-                                gradeData['P5'].homeworks = parsed.P6.homeworks || [];
-                                gradeData['P5'].records = parsed.P6.records || {};
-                            }
+                            gradeData = parsed;
+                            sanitizeGradeData();
                             saveToStorage();
+                            renderGradeTabs();
                             renderTable();
                             hideBackupModal();
                             alert("🎉 備份資料已成功導入與還原！");
@@ -524,6 +812,49 @@
             hideAddModal();
             saveToStorage();
             renderTable();
+        };
+
+        // 編輯功課名稱與日期
+        window.editHomework = function(hwIdx) {
+            const hw = gradeData[currentGrade].homeworks[hwIdx];
+            if (!hw) return;
+            document.getElementById('editHwIndex').value = hwIdx;
+            document.getElementById('editHwName').value = hw.name;
+            document.getElementById('editHwDate').value = hw.date;
+            document.getElementById('editHwModal').classList.remove('hidden');
+        };
+
+        window.hideEditHwModal = function() {
+            document.getElementById('editHwModal').classList.add('hidden');
+        };
+
+        window.saveEditHomework = function() {
+            const idx = parseInt(document.getElementById('editHwIndex').value);
+            const newName = document.getElementById('editHwName').value.trim();
+            const newDate = document.getElementById('editHwDate').value.trim();
+            if (!newName) {
+                alert("功課名稱不能為空！");
+                return;
+            }
+            if (gradeData[currentGrade].homeworks[idx]) {
+                gradeData[currentGrade].homeworks[idx].name = newName;
+                gradeData[currentGrade].homeworks[idx].date = newDate;
+                saveToStorage();
+                renderTable();
+            }
+            hideEditHwModal();
+        };
+
+        // 刪除功課
+        window.deleteHomework = function(hwIdx) {
+            const hw = gradeData[currentGrade].homeworks[hwIdx];
+            if (!hw) return;
+            if (confirm(`確定要刪除功課「${hw.name}」嗎？對應的所有學生遞交紀錄也會被移除。`)) {
+                gradeData[currentGrade].homeworks.splice(hwIdx, 1);
+                gradeData[currentGrade].records = reindexRecords(gradeData[currentGrade].records, hwIdx, 'homework');
+                saveToStorage();
+                renderTable();
+            }
         };
 
         window.toggleNote = function(hwIdx) {
@@ -594,15 +925,17 @@
                 alert("目前沒有功課資料可以匯出。");
                 return;
             }
+            const hasNames = data.students.some(st => st.name && st.name.trim() !== '');
             const excelData = [];
-            const headerRow = ["學號"];
+            const headerRow = hasNames ? ["學號", "姓名"] : ["學號"];
             data.homeworks.forEach(hw => {
                 headerRow.push(`${hw.name} (${hw.date})`);
                 if (hw.showNote) headerRow.push(`${hw.name} - 備註`);
             });
             excelData.push(headerRow);
-            for (let sIdx = 0; sIdx < TOTAL_STUDENTS; sIdx++) {
-                const row = [sIdx + 1];
+
+            data.students.forEach((st, sIdx) => {
+                const row = hasNames ? [st.id, st.name || ''] : [st.id];
                 data.homeworks.forEach((hw, hIdx) => {
                     const key = `${sIdx}_${hIdx}`;
                     const rec = data.records[key] || { status: '-', isLate: false, mark: 'none', note: '' };
@@ -614,7 +947,8 @@
                     if (hw.showNote) row.push(rec.note || "");
                 });
                 excelData.push(row);
-            }
+            });
+
             const ws = XLSX.utils.aoa_to_sheet(excelData);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "功課記錄");
@@ -623,21 +957,49 @@
 
         function renderTable() {
             const data = gradeData[currentGrade];
+            if (!data) return;
+
+            document.getElementById('gradeTitle').innerText = `${data.name}功課記錄系統`;
+            document.getElementById('studentCountSummary').innerText = `目前學生人數：${data.students.length} 人`;
+
             const header = document.getElementById('tableHeader');
             const body = document.getElementById('tableBody');
 
-            let headerHtml = `
-                <th class="p-2 text-center bg-slate-200 font-bold sticky-corner w-20 min-w-[80px] max-w-[80px] h-12 border-r-2 border-slate-300 shadow-sm">學號</th>
-            `;
-            
+            // 判斷是否有匯入/填寫學生姓名
+            const hasNames = data.students.some(st => st.name && st.name.trim() !== '');
+
+            let headerHtml = '';
+            if (hasNames) {
+                headerHtml += `
+                    <th class="p-2 text-center bg-slate-200 font-bold sticky top-0 left-0 z-30 w-16 min-w-[64px] max-w-[64px] h-12 border-r border-slate-300 shadow-sm text-xs text-slate-700">
+                        學號
+                    </th>
+                    <th class="p-2 text-center bg-slate-200 font-bold sticky top-0 left-[64px] z-30 w-28 min-w-[112px] max-w-[112px] h-12 border-r-2 border-slate-300 shadow-sm text-xs text-slate-700">
+                        學生姓名
+                    </th>
+                `;
+            } else {
+                headerHtml += `
+                    <th class="p-2 text-center bg-slate-200 font-bold sticky top-0 left-0 z-30 w-20 min-w-[80px] max-w-[80px] h-12 border-r-2 border-slate-300 shadow-sm text-xs text-slate-700">
+                        學號
+                    </th>
+                `;
+            }
+
             data.homeworks.forEach((hw, i) => {
                 headerHtml += `
                     <th class="p-2 w-36 min-w-[144px] max-w-[144px] h-12 bg-slate-100 border-r sticky-header shadow-sm">
                         <div class="flex flex-col h-full justify-between">
-                            <span class="text-[10px] text-slate-400 font-normal leading-none">${hw.date}</span>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-slate-400 font-normal leading-none">${hw.date}</span>
+                                <div class="flex items-center gap-1">
+                                    <button onclick="editHomework(${i})" title="修改功課名稱" class="text-slate-400 hover:text-blue-600 text-[10px]">✏️</button>
+                                    <button onclick="deleteHomework(${i})" title="刪除功課" class="text-slate-400 hover:text-red-600 text-[10px]">🗑️</button>
+                                </div>
+                            </div>
                             <div class="flex items-center justify-between gap-1">
                                 <span class="font-bold text-blue-900 truncate text-xs" title="${hw.name}">${hw.name}</span>
-                                <button onclick="toggleNote(${i})" class="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-blue-600 text-white rounded-full text-[10px] hover:bg-blue-700 shadow-sm transition">
+                                <button onclick="toggleNote(${i})" title="切換備註欄" class="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-blue-600 text-white rounded-full text-[10px] hover:bg-blue-700 shadow-sm transition">
                                     ${hw.showNote ? '−' : '+'}
                                 </button>
                             </div>
@@ -651,11 +1013,36 @@
             header.innerHTML = headerHtml;
 
             let bodyHtml = '';
-            for (let sIdx = 0; sIdx < TOTAL_STUDENTS; sIdx++) {
-                bodyHtml += `
-                    <tr class="hover:bg-slate-50 transition-colors h-12">
-                        <td class="p-2 text-center sticky-col bg-white hover:bg-slate-50 font-mono font-bold text-slate-700 border-r-2 border-slate-300 w-20 min-w-[80px] max-w-[80px] h-12 shadow-sm">${sIdx + 1}</td>
-                `;
+            data.students.forEach((st, sIdx) => {
+                bodyHtml += `<tr class="hover:bg-slate-50 transition-colors h-12 group">`;
+
+                if (hasNames) {
+                    bodyHtml += `
+                        <td class="p-1 text-center sticky left-0 z-10 bg-white group-hover:bg-slate-50 font-mono font-bold text-slate-700 border-r border-slate-300 w-16 min-w-[64px] max-w-[64px] h-12 shadow-sm text-xs">
+                            ${st.id}
+                        </td>
+                        <td class="p-1 text-center sticky left-[64px] z-10 bg-white group-hover:bg-slate-50 font-semibold text-slate-800 border-r-2 border-slate-300 w-28 min-w-[112px] max-w-[112px] h-12 shadow-sm text-xs relative">
+                            <div class="flex items-center justify-between px-1 h-full">
+                                <span class="truncate w-full text-left font-semibold text-slate-800" title="${st.name || ''}">${st.name || '-'}</span>
+                                <button onclick="deleteStudent(${sIdx})" title="刪除此學生" class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs px-1 transition">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                } else {
+                    bodyHtml += `
+                        <td class="p-1 text-center sticky left-0 z-10 bg-white group-hover:bg-slate-50 font-mono font-bold text-slate-700 border-r-2 border-slate-300 w-20 min-w-[80px] max-w-[80px] h-12 shadow-sm text-xs relative">
+                            <div class="flex items-center justify-between px-1 h-full">
+                                <span class="truncate w-full text-center font-semibold text-slate-800">${st.id}</span>
+                                <button onclick="deleteStudent(${sIdx})" title="刪除此學生" class="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs px-1 transition">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                }
+
                 data.homeworks.forEach((hw, hIdx) => {
                     const key = `${sIdx}_${hIdx}`;
                     const rec = data.records[key] || { status: '-', isLate: false, mark: 'none', note: '' };
@@ -684,9 +1071,9 @@
                     if (hw.showNote) {
                         bodyHtml += `
                             <td class="p-1 bg-amber-50/50 border-r w-44 min-w-[176px] max-w-[176px] h-12">
-                                <textarea 
+                                <textarea
                                     oninput="updateNoteText(${sIdx}, ${hIdx}, this.value)"
-                                    placeholder="..." 
+                                    placeholder="..."
                                     class="w-full h-full bg-transparent text-xs p-1 outline-none resize-none rounded border border-transparent focus:border-amber-300 focus:bg-white"
                                 >${rec.note || ''}</textarea>
                             </td>
@@ -694,7 +1081,7 @@
                     }
                 });
                 bodyHtml += `</tr>`;
-            }
+            });
             body.innerHTML = bodyHtml;
         }
 
